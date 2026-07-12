@@ -9,6 +9,7 @@ from email.mime.text import MIMEText
 STATUS_FILE = "status.json"
 
 def load_status():
+    """Load last check time and all articles alerted on so far."""
     if os.path.exists(STATUS_FILE):
         with open(STATUS_FILE, "r") as f:
             return json.load(f)
@@ -19,6 +20,7 @@ def save_status(status):
         json.dump(status, f, indent=2)
 
 def get_mercor_articles():
+    """Fetch the current Mercor news feed from Google News."""
     url = "https://news.google.com/rss/search?q=Mercor&hl=en-US&gl=US&ceid=US:en"
     feed = feedparser.parse(url)
     return feed.entries
@@ -36,21 +38,35 @@ def format_date(article):
     return "Date unknown"
 
 def send_email(new_articles):
+    """Send a cheese-themed HTML email listing the new articles."""
     gmail_address = os.environ["GMAIL_ADDRESS"]
     gmail_password = os.environ["GMAIL_APP_PASSWORD"]
 
-    body_lines = []
+    article_blocks = ""
     for a in new_articles:
-        body_lines.append(
-            f"- {a['title']}\n"
-            f"  Date: {a['date']}\n"
-            f"  {a['summary']}\n"
-            f"  {a['link']}"
-        )
-    body = "New Mercor news:\n\n" + "\n\n".join(body_lines)
+        article_blocks += f"""
+        <div style="background:#FFF8DC; border:2px solid #F4C430; border-radius:12px;
+                    padding:16px; margin-bottom:16px;">
+          <a href="{a['link']}" style="font-size:16px; font-weight:bold; color:#B8860B;
+             text-decoration:none;">🧀 {a['title']}</a>
+          <div style="color:#8B6508; font-size:12px; margin-top:4px;">{a['date']}</div>
+          <div style="color:#4A3B00; font-size:14px; margin-top:8px;">{a['summary']}</div>
+        </div>
+        """
 
-    msg = MIMEText(body)
-    msg["Subject"] = f"Mercor News Alert: {len(new_articles)} new article(s)"
+    html_body = f"""
+    <html>
+      <body style="background:#FFFBEA; font-family:Georgia, serif; padding:20px;">
+        <h1 style="color:#D2691E;">🧀 Mercor News Watcher</h1>
+        <p style="color:#8B6508;">Gouda news! {len(new_articles)} fresh article(s) just came out of the press.</p>
+        {article_blocks}
+        <p style="color:#B8860B; font-size:12px; margin-top:20px;">That's brie-lliant. Catch you next time it melts.</p>
+      </body>
+    </html>
+    """
+
+    msg = MIMEText(html_body, "html")
+    msg["Subject"] = f"🧀 Mercor News Alert: {len(new_articles)} new article(s)"
     msg["From"] = gmail_address
     msg["To"] = gmail_address
 
@@ -82,6 +98,8 @@ def main():
     else:
         print("No new articles found.")
 
+    # Always update the timestamp, even with nothing new, so the status
+    # page proves the automation is actually alive and checking.
     status["last_checked"] = datetime.now(timezone.utc).isoformat()
     save_status(status)
 
