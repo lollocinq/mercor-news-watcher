@@ -1,6 +1,7 @@
 import feedparser
 import json
 import os
+import re
 import smtplib
 from datetime import datetime, timezone
 from email.mime.text import MIMEText
@@ -8,7 +9,6 @@ from email.mime.text import MIMEText
 STATUS_FILE = "status.json"
 
 def load_status():
-    """Load last check time and all articles alerted on so far."""
     if os.path.exists(STATUS_FILE):
         with open(STATUS_FILE, "r") as f:
             return json.load(f)
@@ -23,11 +23,30 @@ def get_mercor_articles():
     feed = feedparser.parse(url)
     return feed.entries
 
+def clean_summary(raw_html):
+    """Strip HTML tags from the RSS summary and trim it to a readable length."""
+    text = re.sub("<[^<]+?>", "", raw_html or "")
+    text = text.strip()
+    return text[:200] + "..." if len(text) > 200 else text
+
+def format_date(article):
+    """Convert the feed's raw date into a clean, readable format."""
+    if hasattr(article, "published_parsed") and article.published_parsed:
+        return datetime(*article.published_parsed[:6]).strftime("%d %B %Y, %H:%M UTC")
+    return "Date unknown"
+
 def send_email(new_articles):
     gmail_address = os.environ["GMAIL_ADDRESS"]
     gmail_password = os.environ["GMAIL_APP_PASSWORD"]
 
-    body_lines = [f"- {a.title}\n  {a.link}" for a in new_articles]
+    body_lines = []
+    for a in new_articles:
+        body_lines.append(
+            f"- {a['title']}\n"
+            f"  Date: {a['date']}\n"
+            f"  {a['summary']}\n"
+            f"  {a['link']}"
+        )
     body = "New Mercor news:\n\n" + "\n\n".join(body_lines)
 
     msg = MIMEText(body)
@@ -44,21 +63,25 @@ def main():
     seen_links = {a["link"] for a in status["articles"]}
 
     articles = get_mercor_articles()
-    new_articles = [a for a in articles if a.link not in seen_links]
+    new_entries = [a for a in articles if a.link not in seen_links]
 
-    if new_articles:
+    if new_entries:
+        new_articles = [
+            {
+                "title": a.title,
+                "link": a.link,
+                "date": format_date(a),
+                "summary": clean_summary(a.get("summary", "")),
+            }
+            for a in new_entries
+        ]
+
         print(f"Found {len(new_articles)} new article(s). Sending email...")
         send_email(new_articles)
-        for article in new_articles:
-            status["articles"].append({
-                "title": article.title,
-                "link": article.link,
-            })
+        status["articles"].extend(new_articles)
     else:
         print("No new articles found.")
 
-    # Always update the timestamp, even with nothing new, so the status
-    # page proves the automation is actually alive and checking.
     status["last_checked"] = datetime.now(timezone.utc).isoformat()
     save_status(status)
 
