@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Mercor News Watcher</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 600px; margin: 40px auto; padding: 0 16px; }
+    h1 { font-size: 20px; }
+    #last-checked { color: #555; margin-bottom: 24px; }
+    .article { border-bottom: 1px solid #ddd; padding: 12px 0; }
+    .article a { text-decoration: none; color: #1a0dab; }
+  </style>
+</head>
+<body>
+  <h1>Mercor News Watcher</h1>
+  <p id="last-checked">Loading...</p>
+  <div id="articles"></div>
+
+  <script>
+    fetch("status.json")
+      .then(response => response.json())
+      .then(status => {
+        document.getElementById("last-checked").textContent =
+          "Last checked: " + new Date(status.last_checked).toLocaleString();
+
+        const container = document.getElementById("articles");
+        if (status.articles.length === 0) {
+          container.textContent = "No alerts sent yet.";
+          return;
+        }
+
+        status.articles.slice().reverse().forEach(article => {
+          const div = document.createElement("div");
+          div.className = "article";
+          div.innerHTML = `<a href="${article.link}" target="_blank">${article.title}</a>`;
+          container.appendChild(div);
+        });
+      });
+  </script>
+</body>
+</html>
