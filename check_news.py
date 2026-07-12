@@ -1,34 +1,60 @@
-name: Check Mercor News
+import feedparser
+import json
+import os
+import smtplib
+from email.mime.text import MIMEText
 
-on:
-  schedule:
-    - cron: "0 */3 * * *"
-  workflow_dispatch:
+SEEN_FILE = "seen_articles.json"
 
-jobs:
-  check-news:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+def load_seen_articles():
+    if os.path.exists(SEEN_FILE):
+        with open(SEEN_FILE, "r") as f:
+            return set(json.load(f))
+    return set()
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+def save_seen_articles(seen):
+    with open(SEEN_FILE, "w") as f:
+        json.dump(list(seen), f, indent=2)
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+def get_mercor_articles():
+    url = "https://news.google.com/rss/search?q=Mercor&hl=en-US&gl=US&ceid=US:en"
+    feed = feedparser.parse(url)
+    return feed.entries
 
-      - name: Run news check
-        env:
-          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
-          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
-        run: python check_news.py
+def send_email(new_articles):
+    gmail_address = os.environ["GMAIL_ADDRESS"]
+    gmail_password = os.environ["GMAIL_APP_PASSWORD"]
 
-      - name: Commit updated seen list
-        run: |
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-          git add seen_articles.json
-          git diff --staged --quiet || git commit -m "Update seen articles"
-          git push
+    body_lines = [f"- {a.title}\n  {a.link}" for a in new_articles]
+    body = "New Mercor news:\n\n" + "\n\n".join(body_lines)
+
+    msg = MIMEText(body)
+    msg["Subject"] = f"Mercor News Alert: {len(new_articles)} new article(s)"
+    msg["From"] = gmail_address
+    msg["To"] = gmail_address
+
+    with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+        server.login(gmail_address, gmail_password)
+        server.send_message(msg)
+
+def main():
+    seen = load_seen_articles()
+    articles = get_mercor_articles()
+
+    new_articles = [a for a in articles if a.link not in seen]
+
+    if not new_articles:
+        print("No new articles found.")
+        return
+
+    print(f"Found {len(new_articles)} new article(s). Sending email...")
+    send_email(new_articles)
+
+    for article in new_articles:
+        seen.add(article.link)
+
+    save_seen_articles(seen)
+    print("Done.")
+
+if __name__ == "__main__":
+    main()
